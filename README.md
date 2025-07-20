@@ -55,7 +55,7 @@ p2_rating/
 
 1. Клонируйте репозиторий:
 ```bash
-git clone <repository-url>
+git clone https://github.com/asm-bse/p2_rating
 cd p2_rating
 ```
 
