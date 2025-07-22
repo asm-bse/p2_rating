@@ -29,13 +29,13 @@ class RatingCalculator:
             df: DataFrame с данными сотрудников, должен содержать колонку 'date_employment_employee'
             
         Returns:
-            DataFrame с добавленной колонкой 'stage_mark'
+            DataFrame с полными данными и добавленной колонкой 'stage_mark'
         """
-        df = df.copy()
+        df_result = df.copy()
         
         # Преобразуем дату трудоустройства в datetime если нужно
-        if 'date_employment_employee' in df.columns:
-            df['date_employment_employee'] = pd.to_datetime(df['date_employment_employee'])
+        if 'date_employment_employee' in df_result.columns:
+            df_result['date_employment_employee'] = pd.to_datetime(df_result['date_employment_employee'])
         
         def stage_mark_func(row):
             """
@@ -64,8 +64,11 @@ class RatingCalculator:
             else:
                 return 5
         
-        df['stage_mark'] = df.apply(stage_mark_func, axis=1)
-        return df
+        # Добавляем расчет стажа в днях для удобства
+        df_result['employment_days'] = (self.rating_date - df_result['date_employment_employee']).dt.days
+        df_result['stage_mark'] = df_result.apply(stage_mark_func, axis=1)
+        
+        return df_result
     
     def calculate_performance_mark(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -75,9 +78,9 @@ class RatingCalculator:
             df: DataFrame с данными сотрудников, должен содержать колонку 'id_employee'
             
         Returns:
-            DataFrame с добавленной колонкой 'performance_mark'
+            DataFrame с полными данными и добавленными колонками производительности
         """
-        df = df.copy()
+        df_result = df.copy()
         
         # Определяем даты для выборки данных
         rate_date = self.rating_date.date()
@@ -133,19 +136,16 @@ class RatingCalculator:
         df_performance['performance_mark'] = df_performance.apply(performance_mark_func, axis=1)
         df_performance = df_performance.round(2)
         
-        # Объединяем с основным DataFrame
-        df = df.merge(df_performance[['id_employee', 'all_tasks', 'bad_tasks', 'bad_tasks_share', 'performance_mark']], 
-                     how='left', on='id_employee')
+        # Объединяем с основным DataFrame (полный merge со всеми данными)
+        df_result = df_result.merge(df_performance, how='left', on='id_employee')
         
         # Заполняем NaN значения для сотрудников без данных о производительности
-        df['performance_mark'] = df['performance_mark'].fillna(0)
-        df['all_tasks'] = df['all_tasks'].fillna(0)
-        df['bad_tasks'] = df['bad_tasks'].fillna(0)
-        df['bad_tasks_share'] = df['bad_tasks_share'].fillna(0)
-
-        df = df[['id_employee', 'performance_mark', 'stage_mark']]
+        df_result['performance_mark'] = df_result['performance_mark'].fillna(0)
+        df_result['all_tasks'] = df_result['all_tasks'].fillna(0)
+        df_result['bad_tasks'] = df_result['bad_tasks'].fillna(0)
+        df_result['bad_tasks_share'] = df_result['bad_tasks_share'].fillna(0)
         
-        return df
+        return df_result
     
     def calculate_rating(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -157,13 +157,25 @@ class RatingCalculator:
         Returns:
             DataFrame с рассчитанным рейтингом
         """
-        df_result = df.copy()
+        df_base = df.copy()
         
-        # Рассчитываем оценку стажа
-        df_result = self.calculate_stage_mark(df_result)
+        # Рассчитываем оценку стажа независимо
+        df_stage = self.calculate_stage_mark(df_base)
         
-        # Рассчитываем оценку производительности
-        df_result = self.calculate_performance_mark(df_result)
+        # Рассчитываем оценку производительности независимо
+        df_performance = self.calculate_performance_mark(df_base)
+        
+        # Мержим результаты, оставляя только ключевые поля и оценки
+        df_stage_clean = df_stage[['id_employee', 'stage_mark', 'employment_days']].copy()
+        df_performance_clean = df_performance[['id_employee', 'performance_mark', 'all_tasks', 'bad_tasks', 'bad_tasks_share']].copy()
+        
+        # Объединяем базовые данные с оценками
+        df_result = df_base.merge(df_stage_clean, on='id_employee', how='left')
+        df_result = df_result.merge(df_performance_clean, on='id_employee', how='left')
+        
+        # Заполняем пропуски
+        df_result['stage_mark'] = df_result['stage_mark'].fillna(0)
+        df_result['performance_mark'] = df_result['performance_mark'].fillna(0)
         
         # Рассчитываем итоговый рейтинг
         df_result['total_rating'] = df_result['stage_mark'] + df_result['performance_mark']
